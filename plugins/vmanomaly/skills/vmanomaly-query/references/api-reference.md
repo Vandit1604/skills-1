@@ -12,6 +12,7 @@ This reference covers the stable workflows used by the vmanomaly skills. The run
 - [Shared autotune](#shared-autotune)
 - [Detection tasks](#detection-tasks)
 - [Errors and safe retries](#errors-and-safe-retries)
+- [Incident investigation](#incident-investigation)
 
 ## Common conventions
 
@@ -30,6 +31,8 @@ Base URL: `$VM_ANOMALY_URL`. Include `path_prefix` in this value when configured
 | `/api/v1/server/queries` | GET | Configured query aliases |
 | `/api/v1/server/datasource` | GET | Configured datasource context |
 | `/api/v1/query` | GET/POST | Proxy a datasource query |
+| `/api/v1/incident/context` | GET | Resolve persisted incident context (v1.30.7+) |
+| `/api/v1/incident/open` | GET | Redirect to incident results in VMUI (v1.30.7+) |
 | `/api/v1/timeseries/characteristics` | GET | Profile a bounded query sample |
 | `/api/v1/autotune/tasks` | POST | Start shared autotune |
 | `/api/v1/autotune/tasks/{id}` | GET/DELETE | Poll/cancel autotune |
@@ -213,3 +216,11 @@ Poll one task every few seconds. Treat `done`, `error`, and `canceled` as termin
 | 500 | server/runtime failure | Preserve error details and inspect logs/metrics |
 
 Retry only transient connection/server failures, with a bounded count. Validation failures are not transient. Keep tool calls sequential when later calls depend on IDs or results from earlier ones.
+
+## Incident investigation
+
+Available in vmanomaly v1.30.7 and later.
+
+`GET /api/v1/incident/context` resolves configured `model`, `scheduler` and exact emitted `query_key` (`for` label), plus `preset` when supplied, into persisted-output context. Provide Unix-seconds `at` with `before`/`after`, or explicit `from`/`to`. Optional `label.<name>` parameters filter exact source labels; they are not authorization. Use the server's OpenAPI schema and preserve structured errors. The endpoint resolves current configuration on that shard and does not run detection.
+
+For browser navigation use `/api/v1/incident/open` with the same parameters. Keep the UI and incident APIs behind the same authenticated gateway. Initial support requires a shared VictoriaMetrics reader/writer URL and tenant with default metric naming. Never invent configured aliases or treat raw output expressions as fresh detection inputs.
