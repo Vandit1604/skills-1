@@ -19,6 +19,11 @@
       "name": "vmanomaly",
       "source": "./plugins/vmanomaly",
       "description": "Configure, operate, tune, and review VictoriaMetrics Anomaly Detection"
+    },
+    {
+      "name": "docs",
+      "source": "./plugins/docs",
+      "description": "Look up VictoriaMetrics documentation before naming a flag, an API path or a query construct"
     }
   ]
 }

@@ -1,0 +1,27 @@
+{
+  "name": "docs",
+  "description": "Look up VictoriaMetrics, VictoriaLogs, VictoriaTraces, operator, vmanomaly, Helm chart and Cloud documentation before naming a command-line flag, an HTTP API path or a query construct.",
+  "version": "1.0.0",
+  "author": {
+    "name": "VictoriaMetrics"
+  },
+  "homepage": "https://victoriametrics.com",
+  "repository": "https://github.com/VictoriaMetrics/skills",
+  "license": "Apache-2.0",
+  "keywords": [
+    "victoriametrics",
+    "victorialogs",
+    "victoriatraces",
+    "operator",
+    "vmanomaly",
+    "helm",
+    "cloud",
+    "documentation",
+    "docs",
+    "flags",
+    "api",
+    "metricsql",
+    "logsql",
+    "observability"
+  ]
+}
