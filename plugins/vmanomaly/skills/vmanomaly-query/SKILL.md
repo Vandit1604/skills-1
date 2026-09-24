@@ -217,3 +217,7 @@ These are optional enhancements. Continue through vmanomaly server/proxy endpoin
 ## Reference
 
 Read `references/api-reference.md` for endpoint parameters, response fields, error handling, and v1.30 task semantics.
+
+### Investigating a firing alert
+
+For v1.30.7+ incident links, inspect persisted outputs in the supplied absolute time window before proposing a new detection run. Follow the [incident API reference](references/api-reference.md#incident-investigation); discover available tools before claiming MCP support for these endpoints.

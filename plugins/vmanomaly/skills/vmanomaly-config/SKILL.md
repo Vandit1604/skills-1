@@ -233,3 +233,9 @@ For older servers without this contract, explain the limitation rather than sile
 - Obtain approval before applying configs, creating persistent alert rules, or deleting state.
 - Bound samples, time ranges, series limits, trial counts, and concurrent tasks.
 - Never infer that empty data means the metric does not exist until the query and labels are checked.
+
+### UI model choices
+
+Available in vmanomaly v1.30.7 and later.
+
+`server.ui_allowed_models` curates manual model selectors and Auto targets only. It does not restrict Copilot, configured models, shared links or API execution; do not use it as an authorization boundary.

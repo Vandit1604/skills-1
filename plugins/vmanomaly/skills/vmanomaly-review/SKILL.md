@@ -221,3 +221,7 @@ These integrations improve evidence but are not prerequisites; continue using vm
 - Do not apply configs, create persistent rules, purge state, or cancel another user's task without explicit approval.
 - Bound time windows, series limits, and task concurrency.
 - Preserve exact queries, timestamps, and errors in the report, but redact credentials.
+
+### Incident links
+
+On v1.30.7+, a vmalert investigation link opens persisted results rather than refitting the model. Keep the emitted aliases and absolute time window, use the configured shard and inspect current configuration. See the [incident API constraints](../vmanomaly-query/references/api-reference.md#incident-investigation); never treat label filters as access control.
