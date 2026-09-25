@@ -10,6 +10,7 @@ These skills help AI agents and automation tools understand, operate, and troubl
 | [query](plugins/query/) | victoriametrics-query, victorialogs-query, victoriatraces-query, alertmanager-query | Query metrics, logs, traces, and alerts |
 | [diagnostics](plugins/diagnostics/) | vm-trace-analyzer, investigating-with-observability, victoriametrics-cardinality-analysis, victoriametrics-unused-metrics-analysis, stream-aggregation-helper | Query trace analysis, multi-signal investigations, cardinality optimization, unused metric detection, stream aggregation design |
 | [vmanomaly](plugins/vmanomaly/) | vmanomaly-query, vmanomaly-config, vmanomaly-review | Operate the vmanomaly API, build and tune anomaly-detection configurations, and review detection quality |
+| [docs](plugins/docs/) | victoriametrics-docs | Look up a command-line flag, an HTTP API path or a query construct in the published documentation |
 
 ## Installation
 
@@ -28,6 +29,7 @@ npx skills add VictoriaMetrics/skills --skill victoriametrics-query
 npx skills add VictoriaMetrics/skills --skill victorialogs-query
 npx skills add VictoriaMetrics/skills --skill victoriatraces-query
 npx skills add VictoriaMetrics/skills --skill alertmanager-query
+npx skills add VictoriaMetrics/skills --skill victoriametrics-docs
 npx skills add VictoriaMetrics/skills --skill investigating-with-observability
 npx skills add VictoriaMetrics/skills --skill vm-trace-analyzer
 npx skills add VictoriaMetrics/skills --skill victoriametrics-cardinality-analysis
@@ -52,6 +54,7 @@ Install plugins:
 /plugin install query@victoriametrics-tools # Query VictoriaStack components and AlertManager
 /plugin install diagnostics@victoriametrics-tools # Troubleshooting and query trace analysis
 /plugin install vmanomaly@victoriametrics-tools # Configure, operate, tune, and review anomaly detection
+/plugin install docs@victoriametrics-tools # Look up flags, API paths and query constructs in the published docs
 ```
 
 ## Skills
@@ -74,6 +77,12 @@ Install plugins:
 | victoriametrics-cardinality-analysis | Analyze time series cardinality to find optimization opportunities — unused metrics, high-cardinality labels, histogram bloat |
 | victoriametrics-unused-metrics-analysis | Find unused and rarely-queried metrics, then suggest drop rules and relabel configs to reduce waste |
 | stream-aggregation-helper | Design vmagent stream aggregation rules — gate, intake, pick interval/output/by-without, generate YAML, plan rollout, verify with `vm_streamaggr_*` |
+
+### Docs plugin
+
+| Skill | Purpose |
+|-------|---------|
+| victoriametrics-docs | Confirm a command-line flag, an HTTP API path or a MetricsQL/LogsQL construct against the published documentation before naming it |
 
 ### vmanomaly plugin
 
@@ -104,6 +113,7 @@ Once installed, skills are available as slash commands and are also triggered au
 /vmanomaly:vmanomaly-query                         - inspect and operate the vmanomaly API
 /vmanomaly:vmanomaly-config                        - build and tune a validated anomaly configuration
 /vmanomaly:vmanomaly-review                        - audit an existing anomaly configuration
+/docs:victoriametrics-docs                         - check a flag, an API path or a query construct against the docs
 ```
 
 **Example prompts that trigger skills:**
@@ -120,10 +130,12 @@ Once installed, skills are available as slash commands and are also triggered au
 - "Profile this query and choose a vmanomaly model" → `vmanomaly-config`
 - "Check whether my persisted vmanomaly state is compatible with v1.30" → `vmanomaly-query`
 - "Review why this anomaly model produces too many detections" → `vmanomaly-review`
+- "Is there a flag to change the retention period?" → `victoriametrics-docs`
 
 ## Environment Variables
 
-All skills use `curl` and expect these environment variables:
+The query, diagnostics and vmanomaly skills use `curl` and expect these environment variables.
+The `victoriametrics-docs` skill reads the published documentation over HTTP and needs none of them.
 
 ```bash
 VM_METRICS_URL        # VictoriaMetrics query endpoint (e.g., http://localhost:8428)
