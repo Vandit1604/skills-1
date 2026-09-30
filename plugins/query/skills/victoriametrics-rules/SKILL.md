@@ -25,20 +25,25 @@ Pick the workflow by the question:
   `-remoteWrite.url`.
 - A rule is failing, quiet or firing now: Workflow B, then the checklist in "When a Rule Should
   Be Firing Now and Is Not".
-- A new rule to write: Workflow C.
+- A new rule to write: read `references/writing-rules.md`.
 - A rule with `type: vlogs`, or any LogsQL rule: read `references/logs-rules.md` before writing or
   checking it.
 - A rule with `record:` instead of `alert:`: read `references/recording-rules.md`.
+- A page that did not arrive, arrived twice, or resolved early: Workflow B step 5, then
+  `references/notifier.md`.
 - An endpoint field or parameter not shown here: read `references/api-reference.md`.
 
 ## Environment
 
 ```bash
 # $VMALERT_URL   - the running vmalert, e.g. export VMALERT_URL="http://vmalert.example.com:8880"
+#   through VictoriaMetrics with -vmalert.proxyURL: "http://localhost:8428/vmalert"
+#   through cluster vmselect: "https://vmselect.example.com/select/0/prometheus/vmalert"
 # $VM_METRICS_URL - the datasource vmalert queries, for checking an expression yourself
 #   single: export VM_METRICS_URL="http://localhost:8428"
 #   cluster: export VM_METRICS_URL="https://vmselect.example.com/select/0/prometheus"
 # $VM_LOGS_URL    - VictoriaLogs base URL, for a vlogs rule
+# $VM_ALERTMANAGER_URL - Alertmanager base URL, for references/notifier.md
 # $VM_CURL_CONFIG - curl config file with an auth header. Leave unset for a local instance.
 ```
 
@@ -68,8 +73,8 @@ its command line.
   interval is 20 minutes, and debug mode is off by default.
 - Read the rule's own evaluation history before theorising. `samples: 0` means the expression
   returned nothing, which is a different bug from a threshold never crossed.
-- Check `health` and `lastError`, not only `state`. A rule failing at evaluation reports
-  `state: inactive`, which looks like a quiet rule.
+- Check `health` and `lastError`, not only `state`. An evaluation error leaves `state` as it
+  was, so a failing rule can show `inactive` or even `firing`.
 - Never print the contents of `$VM_CURL_CONFIG`.
 
 ## Workflow A: Why Did an Alert Fire, Not Fire, or Fire Late
@@ -103,7 +108,10 @@ health=ok	err=	expr=queue_depth > 100	for=120s	interval=30s	keep_firing_for=0s	e
 ```
 
 `eval_delay=flag` means the group sets none, so `-rule.evalDelay` applies: the value in `/flags`,
-or 30s when `/flags` does not list it.
+or 30s when `/flags` does not list it. A group with `eval_offset` ignores both. The delay does not
+move the timestamps: vmalert subtracts it from the clock and rounds down to a multiple of the
+interval, so every query and `ALERTS` point still sits on the interval. It only decides how late
+vmalert asks, which is what lets late data in.
 
 `/flags` lists only the flags set on the command line and hides URLs as `"secret"`. No
 `-remoteWrite.url` line means vmalert kept no record, so skip step 2. Tell the user that
@@ -111,6 +119,27 @@ or 30s when `/flags` does not list it.
 
 The line does not say where the series go. Query `$VM_METRICS_URL` first. If step 2 returns
 nothing for a rule the user saw fire, ask where `-remoteWrite.url` points.
+
+Behind vmauth, `/flags` and `/metrics` answer for vmauth itself: its flags start with
+`-auth.config`. Through the `/vmalert` proxy of VictoriaMetrics they answer 400. In both cases,
+read vmalert's flags from its scraped metrics instead, if something scrapes it:
+
+```bash
+curl -q --config "${VM_CURL_CONFIG:-/dev/null}" -s \
+  --data-urlencode 'query=flag{name=~"remoteWrite.url|rule.evalDelay|remoteRead.lookback"}' \
+  "$VM_METRICS_URL/api/v1/query" \
+  | jq -r '[.data.result[] | "\(.metric.instance)\t-\(.metric.name)=\(.metric.value)\tis_set=\(.metric.is_set)"] | sort[]'
+```
+
+```
+127.0.0.1:8882	-remoteRead.lookback=1h0m0s	is_set=false
+127.0.0.1:8882	-remoteWrite.url=secret	is_set=true
+127.0.0.1:8882	-rule.evalDelay=5s	is_set=true
+```
+
+Every flag is there. `is_set=false` means the value shown is the default in effect. No result
+means nothing scrapes vmalert into `$VM_METRICS_URL`. Then say that `-remoteWrite.url` cannot be
+read, and take `ALERTS` series in step 2 as the proof that vmalert records its decisions.
 
 ### 2. Read what vmalert decided
 
@@ -131,8 +160,10 @@ curl -q --config "${VM_CURL_CONFIG:-/dev/null}" -s \
 ```
 
 While an alert is active, every evaluation writes one `ALERTS` sample with value `1`, the alert's
-labels, and `alertstate` set to `pending` or `firing`. Set `step` to the group `interval`, so each
-point is one evaluation at the timestamp it evaluated for.
+labels, and `alertstate` set to `pending` or `firing`. Set `step` to the group `interval` and
+`start` to a multiple of it, so each point is one evaluation at the timestamp it evaluated for.
+An unaligned `start` shifts every point and can drop one. End the window at least a minute in
+the past, because the newest points are not complete yet.
 
 One series can hold several episodes, as the `pending` line does here. `ALERTS_FOR_STATE`
 separates them: its value is the episode's `activeAt`, so each distinct value is one episode. An
@@ -156,7 +187,8 @@ curl -q --config "${VM_CURL_CONFIG:-/dev/null}" -s \
 
 The rule has `for: 2m`. The first episode went pending at 15:15:30 and fired at 15:17:30. The
 second went pending at 15:20:30 and cleared before `for` elapsed, so it never fired. An episode
-resolves at the first evaluation after its last point, 15:19:30 for the first one here.
+resolves at the first evaluation after its last point, 15:19:30 for the first one here. With
+`keep_firing_for`, the `firing` points go on for that long after the condition clears.
 
 No line for a series means vmalert never had an active alert for it in the window. If step 3
 shows the condition true for that series, vmalert never saw the data: read the third row of the
@@ -164,19 +196,21 @@ table.
 
 ### 3. Compare with what the data says
 
-Run Workflow B step 4 over the same window, with `expr`, `for` and `interval` from
-step 1 as `--query`, `--for` and `--step`. It accepts them as printed. The exit code covers all
-series, so add the user's labels to the selector, as in `queue_depth{job="batch"} > 100`, when
-they ask about one:
+Run Workflow B step 4 over the same window, with `expr`, `for`, `interval` and `keep_firing_for`
+from step 1 as `--query`, `--for`, `--step` and `--keep-firing-for`. It accepts them as printed. The
+exit code covers all series, so add the user's labels to the selector, as in
+`queue_depth{job="batch"} > 100`, when they ask about one:
 
 ```
-__name__=queue_depth,job=batch
-  condition true at 4 of 4 steps, first 2026-09-30T15:17:30+00:00, last 2026-09-30T15:19:00+00:00
-  never fires: no unbroken run reaches for=120s
-__name__=queue_depth,job=worker
-  condition true at 10 of 12 steps, first 2026-09-30T15:15:30+00:00, last 2026-09-30T15:21:00+00:00
-  fires 2026-09-30T15:17:30+00:00 (pending from 2026-09-30T15:15:30+00:00, for=120s)
+job=batch
+  pending 2026-09-30T15:17:30Z, never fires, cleared 2026-09-30T15:19:30Z before for=120s
+job=worker
+  pending 2026-09-30T15:15:30Z, fires 2026-09-30T15:17:30Z, resolved 2026-09-30T15:19:30Z
+  pending 2026-09-30T15:20:30Z, never fires, cleared 2026-09-30T15:21:30Z before for=120s
 ```
+
+For `job=worker` this matches step 2 exactly. For `job=batch` the data says pending, and step 2
+has no point: vmalert never saw that data.
 
 The script prints only when the condition held. To see how high the values went, run the
 expression without its comparison:
@@ -212,16 +246,17 @@ curl -q --config "${VM_CURL_CONFIG:-/dev/null}" -s \
 ```
 
 Read the two side by side, one series at a time. Check the `for` verdict first: a run of N true
-evaluations lasts N-1 intervals, so firing needs `for` / `interval` + 1 of them. A shorter run never
-fires, whatever vmalert saw. `job=batch` above holds for 4 evaluations, 90 seconds, and needs 5,
-so it never fires for that reason alone. A short run still goes pending, so it still writes
-`ALERTS` points. `job=batch` has none, which is a second, separate finding.
+evaluations lasts N-1 intervals, so firing needs `for` / `interval` + 1 of them in a row. One
+evaluation with no result restarts the count. A shorter run never fires, whatever vmalert saw.
+`job=batch` above holds for 4 evaluations, 90 seconds, and needs 5, so it never fires for that
+reason alone. A short run still goes pending, so it still writes `ALERTS` points. `job=batch` has
+none, which is a second, separate finding.
 
 | Data | `ALERTS` | Cause |
 |---|---|---|
 | condition true | pending, then firing at `activeAt` plus `for` | The rule worked. If nobody was paged, check delivery in Workflow B step 5 |
 | condition true | pending only | The condition cleared before `for` elapsed, as in the 15:20:30 episode |
-| condition true | no point at those times | vmalert never saw it: every evaluation where the condition held writes a pending or firing point. `job=batch` above has none. If step 2 shows points for other series of the same rule at those times, vmalert was running and the rule worked, so the data arrived after the evaluation; raise `eval_delay` on the group or `-rule.evalDelay` (30s unless `/flags` lists it). No API shows when a sample arrived, so this comparison is the evidence. With no points for any series, vmalert was down or the rule was failing |
+| condition true | no point at those times | vmalert never saw it: every evaluation where the condition held writes a pending or firing point. `job=batch` above has none. If step 2 shows points for other series of the same rule at those times, vmalert was running and the rule worked, so the data arrived after the evaluation; raise `eval_delay` on the group or `-rule.evalDelay` (30s unless `/flags` lists it). It should be at least the datasource's `-search.latencyOffset`, 30s by default. No API shows when a sample arrived, so this comparison is the evidence. With no points for any series, vmalert was down, the rule was failing, or evaluations ran longer than the interval and were skipped (`vmalert_iteration_missed_total` rising in `/metrics`) |
 | condition false | no point | The threshold was never crossed |
 | condition false | pending or firing | `keep_firing_for` held it, or the data changed after vmalert read it |
 
@@ -232,18 +267,23 @@ so it never fires for that reason alone. A short run still goes pending, so it s
 ```bash
 curl -q --config "${VM_CURL_CONFIG:-/dev/null}" -s "$VMALERT_URL/api/v1/rules" \
   | jq -r '.data.groups[].rules[]
-           | "\(.name)\tstate=\(.state)\thealth=\(.health)\tsamples=\(.lastSamples)\tfetched=\(.lastSeriesFetched)\terr=\(.lastError)"'
+           | "\(.name)\tstate=\(.state)\thealth=\(.health)\tsamples=\(.lastSamples)\tfetched=\(.lastSeriesFetched)\terr=\(.lastError)\tgroup_id=\(.group_id)\tid=\(.id)"'
 ```
 
 ```
-VMUptimeHigh	state=firing	health=ok	samples=1	fetched=1	err=
+E2EFlag	state=inactive	health=ok	samples=0	fetched=1	err=	group_id=6610928012533843372	id=8033498038201396685
 ```
 
 `lastSamples` is how many samples the last evaluation returned, and `lastSeriesFetched` is how
-many series the datasource read to produce them. `fetched=0` means the selector matches nothing,
-so the rule can never fire whatever the threshold is.
+many series the datasource read to produce them. `fetched=0` with `samples=0` means the selector
+matches nothing. `vector(1)` or `absent(...)` fetch nothing and still return a sample, and `-1`
+means the datasource does not report the count.
 
-Keep the `id` and `group_id` from this response for step 2.
+The command lists every rule. To find what is broken, scan it for `health=err` and `fetched=0`.
+A rule over its `limit` shows `err=exec exceeded limit of N with M alerts` and `state=inactive`.
+A recording rule has an empty `state`.
+
+Step 2 takes `group_id` and `id` from this output.
 
 ### 2. Read the per-evaluation history
 
@@ -292,42 +332,35 @@ where a broken `dashboard` link or an empty `summary` shows up.
 
 ### 4. Work out when a rule fires over a past window, read-only
 
-Run the whole alerting expression, comparison included, as a range query. A filtering comparison
-drops the samples where it is false, so every returned point is a moment the condition held:
-
-```bash
-curl -q --config "${VM_CURL_CONFIG:-/dev/null}" -s \
-  --data-urlencode 'query=sum(rate(http_requests_total{code=~"5.."}[5m])) by (job) / sum(rate(http_requests_total[5m])) by (job) > 0.05' \
-  --data-urlencode 'start=2026-09-22T00:00:00Z' \
-  --data-urlencode 'end=2026-09-22T02:00:00Z' \
-  --data-urlencode 'step=1m' \
-  "$VM_METRICS_URL/api/v1/query_range" | jq '.data.result[].values | length'
-```
-
-Run `scripts/would_fire.py` to do that query and apply `for`. `<skill_base_dir>` is the directory
-holding this SKILL.md. Run the script; there is no need to read it:
+Run `scripts/would_fire.py`. It sends what vmalert sends: one instant query per evaluation, at each
+multiple of `--step`, with `--eval-step` as the `step` parameter. Then it applies `for` per series,
+`keep_firing_for` included. `<skill_base_dir>` is the directory holding this SKILL.md. Run the
+script; there is no need to read it:
 
 ```bash
 python3 <skill_base_dir>/scripts/would_fire.py \
   --url "$VM_METRICS_URL" \
-  --query 'sum(rate(http_requests_total{code=~"5.."}[5m])) by (job) / sum(rate(http_requests_total[5m])) by (job) > 0.05' \
-  --start 2026-09-22T00:00:00Z --end 2026-09-22T02:00:00Z \
-  --step 1m --for 5m
+  --query 'queue_depth{job="worker"} > 100' \
+  --start 2026-09-30T15:12:00Z --end 2026-09-30T15:24:00Z \
+  --step 30s --for 2m --keep-firing-for 0s --eval-step 300s
 ```
 
 ```
-job=api
-  condition true at 58 of 58 steps, first 2026-09-22T01:03:00+00:00, last 2026-09-22T02:00:00+00:00
-  fires 2026-09-22T01:08:00+00:00 (pending from 2026-09-22T01:03:00+00:00, for=300s)
+job=worker
+  pending 2026-09-30T15:15:30Z, fires 2026-09-30T15:17:30Z, resolved 2026-09-30T15:19:30Z
+  pending 2026-09-30T15:20:30Z, never fires, cleared 2026-09-30T15:21:30Z before for=120s
 ```
 
-It exits 1 when no series has an unbroken run that reaches the `for` duration, and 0 when at least
-one series fires, so it works in a check. Exit 2 means the check could not run, for example the
-datasource was unreachable or rejected the query: read the message, and never report exit 2 as
-"the rule would not fire". `for` and `--step` accept vmalert durations such as
-`1h30m` or `500ms`. A `WARNING from the datasource` line means a query limit cut the result
-short: narrow the window or raise the limit before you trust the verdict. The request gives up
-after 90 seconds with an error.
+Take `--eval-step` from the `step=` in step 2's `curl` field. It is `-datasource.queryStep`, 5m by
+default, and it decides how far back each query looks. A range query with a short `step` can
+disagree with vmalert: `increase(x) > 12` written without a window covers 5m in vmalert's query and
+fires, while a 30s range query covers far less and never fires. The script starts `for` twice early,
+so an alert already pending at `--start` fires on time.
+
+It exits 0 when a series fires inside the window, and 1 when none does. Exit 2 means there is no
+verdict: the datasource was unreachable, rejected the query, or warned that a limit cut the result
+short. Read the message, and never report exit 2 as "the rule would not fire". It stops after
+1000 evaluations or 90 seconds; narrow the window if it does.
 
 ### 5. Confirm the alert has somewhere to go
 
@@ -343,78 +376,8 @@ static	blackhole	err=
 A firing rule with a notifier `lastError` is a delivery problem, not a rule problem. An address
 of `blackhole` means `-notifier.blackhole` is set and nothing is being sent by design.
 
-To confirm notifications are actually leaving vmalert, read its own counters:
-
-```bash
-curl -q --config "${VM_CURL_CONFIG:-/dev/null}" -s "$VMALERT_URL/metrics" \
-  | jq -Rr 'select(test("^vmalert_alerts_(sent|send_errors)_total[{ ]"))'
-```
-
-```
-vmalert_alerts_sent_total{addr="blackhole"} 1
-vmalert_alerts_send_errors_total{addr="blackhole"} 0
-```
-
-One counter per notifier address. The counters count from vmalert's start, so read them twice and
-compare. `sent_total` rising while an alert fires is proof the notification path works end to end.
-`sent_total` flat with a firing alert means nothing is being delivered, and `send_errors_total`
-rising tells you vmalert is trying and failing.
-
-These counters end at Alertmanager. Whether Alertmanager routed the alert to a person is its own
-question; use the `alertmanager-query` skill for it.
-`vmalert_alerts_send_duration_seconds` is the same set if you need latency.
-
-## Workflow C: Writing a New Rule
-
-### 1. Run the expression before writing the rule around it
-
-Use the `victoriametrics-query` skill for MetricsQL, or `victorialogs-query` for LogsQL. An
-expression which returns nothing produces a rule which never fires, and no later check reports
-that as an error.
-
-### 2. Write the rule
-
-```yaml
-groups:
-  - name: api-availability
-    interval: 1m
-    rules:
-      - record: job:http_requests:rate5m
-        expr: sum(rate(http_requests_total[5m])) by (job)
-
-      - alert: HighErrorRate
-        expr: |
-          sum(rate(http_requests_total{code=~"5.."}[5m])) by (job)
-            / sum(rate(http_requests_total[5m])) by (job) > 0.05
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "{{ $labels.job }} serves {{ $value | humanizePercentage }} 5xx"
-          dashboard: "https://grafana.example.com/d/abc123/api?var-job={{ $labels.job }}"
-```
-
-Give every alert a `dashboard` annotation which opens the panel showing the same series, with
-the alert's own labels templated into the URL. The person woken at 03:00 starts there. Step 3 of
-Workflow B shows the rendered link, so check it resolves before trusting it.
-
-`for` holds the alert until the condition has been true that long. `keep_firing_for` holds it
-after the condition clears, which stops a flapping alert from resolving and re-firing.
-
-### 3. Check when it would fire
-
-Use Workflow B step 4 against the window of a real past incident. Silence there means the rule would
-have missed it.
-
-### 4. Deploy, reload, then verify against the live instance
-
-```bash
-curl -q --config "${VM_CURL_CONFIG:-/dev/null}" -s -X POST "$VMALERT_URL/-/reload"
-```
-
-`/-/reload` sends vmalert a SIGHUP to re-read its rule files. It may be protected by
-`-reloadAuthKey`. Then run Workflow B steps 1 and 2 and confirm `health=ok`,
-`lastError` empty, and `fetched` greater than zero.
+To check that the alerts reach Alertmanager, or to explain a duplicate or missing page, read
+`references/notifier.md`.
 
 ## When a Rule Should Be Firing Now and Is Not
 
@@ -422,8 +385,9 @@ For a past window, use Workflow A. For a rule that is quiet now, work down this 
 Each step distinguishes two causes the previous one cannot.
 
 1. `lastError` non-empty, or `health` not `ok`. The rule is failing, not quiet.
-2. `fetched=0` in Workflow B step 1. The selector matches nothing. Check label names against
-   the datasource.
+2. `fetched=0` and `samples=0` in Workflow B step 1. The selector matches nothing. Check the metric
+   name and the label names against the datasource, for example with
+   `count by (__name__) ({__name__=~"queue_dep.*"})`.
 3. `samples=0` across the history in Workflow B step 2, with `fetched` above zero. The series
    exist and the threshold was never crossed. Run the `curl` from the update and look at the value.
 4. `activeAt` set but no firing alert. The condition is true but `for` has not elapsed yet.
@@ -438,6 +402,6 @@ Each step distinguishes two causes the previous one cannot.
 ## Important Notes
 
 - `/api/v1/rule` is the only endpoint here which is **not** wrapped in `{"status":...,"data":...}`; its fields sit at the top level
-- `/api/v1/rule` and `/api/v1/alert` both require `group_id` **and** the rule or alert id, taken from `/api/v1/rules`
+- `/api/v1/rule` and `/api/v1/alert` both require `group_id` **and** the rule or alert id, taken from `/api/v1/rules` or `/api/v1/alerts`
 - `/-/reload` is the only write, and may be protected by `-reloadAuthKey`
 - `type: graphite` rules take a Graphite render query as `expr`. Workflow B applies unchanged

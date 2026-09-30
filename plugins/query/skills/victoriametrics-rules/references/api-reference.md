@@ -208,8 +208,8 @@ Group level:
 | `interval` | evaluation interval |
 | `eval_offset` | pin evaluation to a fixed offset within the interval |
 | `eval_delay` | shift the evaluated timestamp back, to let late data arrive. The fix when a rule misses an incident it clearly covers |
-| `eval_alignment` | align the query timestamp to the interval |
-| `limit` | cap the series a group may produce |
+| `eval_alignment` | align the query timestamp to the interval; `true` by default |
+| `limit` | cap the results of each rule in the group; above it the rule errors and drops all its results. Default `-rule.resultsLimit` |
 | `concurrency` | rules evaluated in parallel |
 | `labels` | added to every rule in the group, and outrank external labels |
 | `params`, `headers` | extra query parameters and HTTP headers per datasource request |
@@ -225,7 +225,8 @@ Rule level:
 | `expr` | required. MetricsQL, LogsQL or Graphite, per the group `type` |
 | `for` | hold pending this long before firing |
 | `keep_firing_for` | keep firing this long after the condition clears, which stops flapping |
-| `labels`, `annotations` | templated with `{{ $value }}` and `{{ $labels.x }}` |
+| `annotations` | full templating, such as `{{ $value }}` and `{{ $labels.x }}` |
+| `labels` | only `$labels`, `$value` and `$expr`. `$value` in a label makes a new alert on every change, so `for` never elapses |
 | `debug` | as above, for the single rule |
 | `update_entries_limit` | override how many evaluations are retained for this rule |
 
@@ -271,7 +272,7 @@ name.
 
 ### Ingesting test logs into VictoriaLogs
 
-`/insert/jsonline` requires `Content-Type: application/x-ndjson`. Without it VictoriaLogs answers
-`200`, increments no drop counter, and stores nothing, which is indistinguishable from a
-successful ingest until a later query comes back empty. `curl --data-binary` sends
-`application/x-www-form-urlencoded` by default, so pass the header explicitly.
+`curl --data-binary` sends `Content-Type: application/x-www-form-urlencoded` by default. With that
+type `/insert/jsonline` answers `200`, stores nothing and moves no error counter, because
+VictoriaLogs reads the body as form fields while it parses the query arguments. Send
+`-H 'Content-Type: application/stream+json'`, as the VictoriaLogs quickstart does.

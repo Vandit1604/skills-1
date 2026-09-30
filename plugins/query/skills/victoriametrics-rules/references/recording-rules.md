@@ -39,7 +39,7 @@ no data in `$VM_METRICS_URL` means vmalert writes to a different place than you 
 `level:metric:operation`, as in `job:http_requests:rate5m`, so the output name says what it
 aggregates.
 
-Two things that differ from alerting rules:
+Three things that differ from alerting rules:
 
 - vmalert refuses to start when the config holds any recording rule and `-remoteWrite.url` is
   unset, with `config contains recording rules but -remoteWrite.url isn't set`. There is nowhere
