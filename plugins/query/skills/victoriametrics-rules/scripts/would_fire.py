@@ -44,7 +44,7 @@ def curl_command(url, query, at, eval_step, timeout):
     return ["curl", "-q", "--config", os.environ.get("VM_CURL_CONFIG") or "/dev/null",
             "-sS", "--fail-with-body", "--max-time", str(max(1, int(timeout))),
             "--data-urlencode", "query=" + query,
-            "--data-urlencode", "time=%d" % at,
+            "--data-urlencode", "time=%.3f" % at,
             "--data-urlencode", "step=%gs" % eval_step,
             # Named, so a URL starting with "-" is not read as an option.
             "--url", url.rstrip("/") + "/api/v1/query"]
@@ -222,8 +222,7 @@ def true_times_by_series(results):
     for at, series in results:
         for s in series:
             # vmalert drops __name__ from alert labels, so the report does too.
-            labels = {k: v for k, v in s["metric"].items() if k != "__name__"}
-            key = ",".join("%s=%s" % kv for kv in sorted(labels.items())) or "{}"
+            key = tuple(sorted((k, v) for k, v in s["metric"].items() if k != "__name__"))
             true_at.setdefault(key, set()).add(at)
     return true_at
 
@@ -237,7 +236,7 @@ def report(true_at, times, start, end, for_s, keep_s):
         if not eps:
             continue
         reported = True
-        print(key)
+        print("{%s}" % ",".join("%s=%s" % (k, json.dumps(v)) for k, v in key))
         for e in eps:
             text, fired = describe(e, times, start, end, for_s)
             print("  " + text)

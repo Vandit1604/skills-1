@@ -202,9 +202,9 @@ exit code covers all series, so add the user's labels to the selector, as in
 `queue_depth{job="batch"} > 100`, when they ask about one:
 
 ```
-job=batch
+{job="batch"}
   pending 2026-09-30T15:17:30Z, never fires, cleared 2026-09-30T15:19:30Z before for=120s
-job=worker
+{job="worker"}
   pending 2026-09-30T15:15:30Z, fires 2026-09-30T15:17:30Z, resolved 2026-09-30T15:19:30Z
   pending 2026-09-30T15:20:30Z, never fires, cleared 2026-09-30T15:21:30Z before for=120s
 ```
@@ -346,7 +346,7 @@ python3 <skill_base_dir>/scripts/would_fire.py \
 ```
 
 ```
-job=worker
+{job="worker"}
   pending 2026-09-30T15:15:30Z, fires 2026-09-30T15:17:30Z, resolved 2026-09-30T15:19:30Z
   pending 2026-09-30T15:20:30Z, never fires, cleared 2026-09-30T15:21:30Z before for=120s
 ```

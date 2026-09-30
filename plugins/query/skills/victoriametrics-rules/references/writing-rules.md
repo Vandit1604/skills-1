@@ -43,14 +43,18 @@ after the condition clears, which stops a flapping alert from resolving and re-f
 ## 3. Check when it would fire
 
 Use Workflow B step 4 against the window of a real past incident. Silence there means the rule would
-have missed it.
+have missed it. For a `vlogs` rule, use the `stats_query_range` check in `references/logs-rules.md`.
+A recording rule never fires, so skip this step for it.
 
 ## 4. Deploy, reload, then verify against the live instance
 
+Put the rule in a file that vmalert loads through `-rule`. Then reload:
+
 ```bash
-curl -q --config "${VM_CURL_CONFIG:-/dev/null}" -s -X POST "$VMALERT_URL/-/reload"
+curl -q --config "${VM_CURL_CONFIG:-/dev/null}" -sS --fail-with-body -X POST "$VMALERT_URL/-/reload"
 ```
 
-`/-/reload` sends vmalert a SIGHUP to re-read its rule files. It may be protected by
-`-reloadAuthKey`. Then run Workflow B steps 1 and 2 and confirm `health=ok`,
-`lastError` empty, and `fetched` greater than zero.
+`/-/reload` sends vmalert a SIGHUP to re-read its rule files, and answers 200 before it reads
+them. A 401 means `-reloadAuthKey` is set. A file that fails to parse still answers 200, so check
+that `vmalert_config_last_reload_successful` in `/metrics` is 1. Then run Workflow B steps 1 and 2
+and confirm `health=ok`, `lastError` empty, and `fetched` greater than zero.

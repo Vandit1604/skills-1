@@ -48,7 +48,7 @@ Workflows A and B in SKILL.md apply to a `vlogs` rule. vmalert writes its `ALERT
 
 `would_fire.py` does not apply, because it queries the Prometheus API. For a past window, run the
 rule's expression through `stats_query_range` with `step` set to the group interval, and a
-`start` on a multiple of it:
+`start` on a multiple of it. This example is a group with `interval: 30s`:
 
 ```bash
 curl -q --config "${VM_CURL_CONFIG:-/dev/null}" -s \
