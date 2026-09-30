@@ -16,6 +16,8 @@ All responses in this file were captured from a running vmalert. Field names are
 - [GET /api/v1/group](#get-apiv1group) - one group
 - [GET /api/v1/notifiers](#get-apiv1notifiers) - notifier targets and their last error
 - [POST /-/reload](#post--reload) - re-read the rule files
+- [GET /flags](#get-flags) - the flags vmalert was started with
+- [ALERTS and ALERTS_FOR_STATE](#alerts-and-alerts_for_state) - the alert state vmalert writes
 - [Rule and group fields](#rule-and-group-fields) - the YAML side
 - [Datasource requests vmalert makes](#datasource-requests-vmalert-makes)
 
@@ -159,6 +161,41 @@ curl -q --config "${VM_CURL_CONFIG:-/dev/null}" -s -X POST "$VMALERT_URL/-/reloa
 
 Sends vmalert a SIGHUP so it re-reads its rule files. Returns `200` with an empty body. It may be
 protected by `-reloadAuthKey`, in which case pass the key. This is the only write in this file.
+
+## GET /flags
+
+```bash
+curl -q --config "${VM_CURL_CONFIG:-/dev/null}" -s "$VMALERT_URL/flags"
+```
+
+Plain text, one flag per line, only the flags set on the command line. URLs and other secrets
+show as `"secret"`:
+
+```
+-datasource.url="secret"
+-notifier.blackhole="true"
+-remoteRead.url="secret"
+-remoteWrite.url="secret"
+-rule="rules.yml"
+-rule.evalDelay="5s"
+```
+
+A flag which is missing has its default value.
+
+## ALERTS and ALERTS_FOR_STATE
+
+With `-remoteWrite.url` set, vmalert writes two series per active alert on every evaluation,
+timestamped with the evaluation time:
+
+| Series | Value | Labels |
+|---|---|---|
+| `ALERTS` | `1` | the alert's labels, plus `alertstate="pending"` or `alertstate="firing"` |
+| `ALERTS_FOR_STATE` | `activeAt`, as Unix seconds | the alert's labels |
+
+The alert's labels include `alertname`, `alertgroup`, the rule's `labels` and the labels of the
+series the expression returned. When the alert leaves a state, vmalert writes a stale marker, so
+the series ends at the last evaluation in that state. With `-remoteRead.url` set, vmalert reads
+`ALERTS_FOR_STATE` once at startup to restore `activeAt`.
 
 ## Rule and group fields
 
