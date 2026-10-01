@@ -20,8 +20,8 @@ have no history and cannot prove delivery for a past window.
 vmalert resends a firing alert at every evaluation (`-rule.resendDelay`, 0 by default), so
 `sent_total` counts sends, not alerts. It rising with `send_errors_total` flat means the notifier
 accepted the requests. `send_errors_total` rising means vmalert is trying and failing. Neither
-proves the alert arrived: vmalert counts an alert before `alert_relabel_configs` in
-`-notifier.config` drops it, and those rules can also change its labels, so the labels in
+proves the alert arrived: vmalert counts an alert before the `alert_relabel_configs` of a target
+in `-notifier.config` drops it. Relabel rules can also change its labels, so the labels in
 Alertmanager can differ from `ALERTS`.
 
 Each send sets the alert's `endsAt` to four group intervals ahead, capped by
